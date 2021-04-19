@@ -50,6 +50,7 @@ describe VagrantPlugins::OVirtProvider::Config do
     its("optimized_for")     { should be_nil }
     its("description")       { should == '' }
     its("comment")           { should == '' }
+    its("ip_addr_timeout")   { should == 300 }
 
   end
 
@@ -123,6 +124,16 @@ describe VagrantPlugins::OVirtProvider::Config do
 
       end
 
+    end
+  end
+
+  describe "overriding ip_addr_timeout" do
+    [:ip_addr_timeout].each do |attribute|
+      it "should not default if overridden" do
+        instance.send("#{attribute}=".to_sym, 60)
+        instance.finalize!
+        instance.send(attribute).should == 60
+      end
     end
   end
 

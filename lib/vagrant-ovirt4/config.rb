@@ -30,6 +30,7 @@ module VagrantPlugins
       attr_accessor :description
       attr_accessor :comment
       attr_accessor :disks
+      attr_accessor :ip_addr_timeout
 
       def initialize
         @url               = UNSET_VALUE
@@ -56,6 +57,7 @@ module VagrantPlugins
         @description       = UNSET_VALUE
         @comment           = UNSET_VALUE
         @disks             = []
+        @ip_addr_timeout   = UNSET_VALUE
 
       end
 
@@ -109,6 +111,7 @@ module VagrantPlugins
         @optimized_for = nil if @optimized_for == UNSET_VALUE
         @description = '' if @description == UNSET_VALUE
         @comment = '' if @comment == UNSET_VALUE
+        @ip_addr_timeout = 300 if @ip_addr_timeout == UNSET_VALUE
 
         unless optimized_for.nil?
           raise "Invalid 'optimized_for'. Must be one of #{OvirtSDK4::VmType.constants.map { |s| "'#{s.downcase}'" }.join(' ')}" unless OvirtSDK4::VmType.constants.include? optimized_for.upcase.to_sym

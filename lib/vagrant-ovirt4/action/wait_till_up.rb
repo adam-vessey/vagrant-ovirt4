@@ -1,3 +1,4 @@
+require 'ipaddr'
 require 'log4r'
 require 'vagrant-ovirt4/util/timer'
 require 'vagrant/util/retryable'
@@ -45,68 +46,61 @@ module VagrantPlugins
           # Wait for VM to obtain an ip address.
           env[:metrics]["instance_ip_time"] = Util::Timer.time do
             env[:ui].info(I18n.t("vagrant_ovirt4.waiting_for_ip"))
-            for i in 1..300
-              # If we're interrupted don't worry about waiting
-              next if env[:interrupted]
+            env[:ui].detail(I18n.t("vagrant_ovirt4.waiting_for_ip_timeout", :count => config.ip_addr_timeout.to_f))
+            Timeout::timeout(config.ip_addr_timeout) do
+              loop do
+                # If we're interrupted don't worry about waiting
+                return if env[:interrupted]
 
-              # Get VM.
-              server = env[:vms_service].vm_service(env[:machine].id)
-              if server == nil
-                raise Errors::NoVMError, :vm_id => env[:machine].id
-              end
-
-              nics_service = server.nics_service
-              nics = nics_service.list
-              begin
-                ip_addr = nics.collect { |nic_attachment| env[:connection].follow_link(nic_attachment.reported_devices).collect { |dev| dev.ips.collect { |ip| ip.address if ip.version == 'v4' } unless dev.ips.nil? } }.flatten.reject { |ip| ip.nil? }.first
-              rescue
-                # for backwards compatibility with ovirt 4.3
-                ip_addr = nics.collect { |nic_attachment| env[:connection].follow_link(nic_attachment).reported_devices.collect { |dev| dev.ips.collect { |ip| ip.address if ip.version == 'v4' } unless dev.ips.nil? } }.flatten.reject { |ip| ip.nil? }.first rescue nil
-              end
-
-              unless ip_addr.nil?
-                env[:ui].info("Got IP: #{ip_addr}")
-                # Check if SSH-Server is up
-                if port_open?(ip_addr, 22)
-                  env[:ip_address] = ip_addr
-                  break
-                  @logger.debug("Got output #{env[:ip_address]}")
+                # Get VM.
+                server = env[:vms_service].vm_service(env[:machine].id)
+                if server == nil
+                  raise Errors::NoVMError, :vm_id => env[:machine].id
                 end
+
+                nics_service = server.nics_service
+                nics = nics_service.list
+                begin
+                  ip_addr = nics.collect { |nic_attachment| env[:connection].follow_link(nic_attachment.reported_devices).collect { |dev| dev.ips.collect { |ip| ip.address if ip.version == 'v4' } unless dev.ips.nil? } }.flatten.reject { |ip| ip.nil? }.first
+                rescue
+                  # for backwards compatibility with ovirt 4.3
+                  ip_addr = nics.collect { |nic_attachment| env[:connection].follow_link(nic_attachment).reported_devices.collect { |dev| dev.ips.collect { |ip| ip.address if ip.version == 'v4' } unless dev.ips.nil? } }.flatten.reject { |ip| ip.nil? }.first rescue nil
+                end
+
+                if ip_addr
+                  begin
+                    IPAddr.new(ip_addr)
+                    # Check if SSH-Server is up
+                    if port_open?(ip_addr, 22)
+                      env[:ip_address] = ip_addr
+                      @logger.debug("Got output #{env[:ip_address]}")
+                      break
+                    end
+                  rescue IPAddr::InvalidAddressError
+                    @logger.warn("Invalid IP address returned: #{ip_addr}")
+                  end
+                end
+
+                sleep 1
               end
-              sleep 5
+
+              return if env[:interrupted]
+
+              if env[:ip_address]
+                env[:ui].detail("IP: #{env[:ip_address]}")
+                @logger.info("Got IP address #{env[:ip_address]}")
+                # Booted and ready for use.
+                env[:ui].info(I18n.t("vagrant_ovirt4.ready"))
+
+                @app.call(env)
+              else
+                raise Errors::NoIPError
+              end
+            rescue Timeout::Error
+              raise Errors::NoIPError
             end
           end
-          terminate(env) if env[:interrupted]
-          if env[:ip_address].nil?
-            raise Errors::NoIPError
-          else
-            @logger.info("Got IP address #{env[:ip_address]}")
-            @logger.info("Time for getting IP: #{env[:metrics]["instance_ip_time"]}")
-            
-            @logger.info("Time for SSH ready: #{env[:metrics]["instance_ssh_time"]}")
-
-            # Booted and ready for use.
-            env[:ui].info(I18n.t("vagrant_ovirt4.ready"))
-            
-            @app.call(env)
-          end
-        end
-
-        def recover(env)
-          return if env["vagrant.error"].is_a?(Vagrant::Errors::VagrantError)
-
-          if env[:machine].provider.state.id != :not_created
-            # Undo the import
-            terminate(env)
-          end
-        end
-
-        def terminate(env)
-          destroy_env = env.dup
-          destroy_env.delete(:interrupted)
-          destroy_env[:config_validate] = false
-          destroy_env[:force_confirm_destroy] = true
-          env[:action_runner].run(Action.action_destroy, destroy_env)        
+          @logger.info("Time for getting IP: #{env[:metrics]["instance_ip_time"]}")
         end
       end
     end
