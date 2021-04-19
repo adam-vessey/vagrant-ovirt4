@@ -14,3 +14,5 @@ end
 group :plugins do
   gem 'vagrant-ovirt4', :path => '.'
 end
+
+gem "rspec-mocks", "~> 3.5"
